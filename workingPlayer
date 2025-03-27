@@ -1,0 +1,88 @@
+local monitor = peripheral.find("monitor")
+local tape = peripheral.find("tape_drive")
+monitor.setTextScale(0.5)
+
+local function waitForRedstone()
+    print("Waiting for redstone signal to start video...")
+    while true do
+        for _, side in ipairs(redstone.getSides()) do
+            if redstone.getInput(side) then
+                return
+            end
+        end
+        os.pullEvent("redstone")
+    end
+end
+
+local function resetTapeDrive()
+    if not tape then return end
+    tape.stop()
+    tape.seek(-tape.getSize()) -- rewind to beginning
+    tape.play()
+end
+
+local function fetchVideoChunk(index)
+    local url = "https://raw.githubusercontent.com/robertjojo123/vp/refs/heads/main/video_chunk_" .. index .. ".nfv"
+    local response = http.get(url)
+    if not response then return nil end
+
+    local data = {}
+    for line in response.readLine do
+        table.insert(data, line)
+    end
+    response.close()
+    return data
+end
+
+local function drawFrame(frameData)
+    for y = 1, #frameData do
+        local bg = frameData[y]
+        local txt = string.rep(" ", #bg)
+        local fg = string.rep("0", #bg)
+        monitor.setCursorPos(1, y)
+        monitor.blit(txt, fg, bg)
+    end
+end
+
+local function nextFrame(data, index, resolution, fps)
+    local start = os.epoch("utc")
+    local frame = {}
+
+    for i = 1, resolution[2] do
+        table.insert(frame, data[index + i])
+    end
+
+    drawFrame(frame)
+    local comp = math.ceil((os.epoch("utc") - start) / 50) / 20
+    os.sleep((1 / fps) - comp)
+
+    return index + resolution[2]
+end
+
+local function playVideo()
+    local chunkIndex = 0
+    while true do
+        local data = fetchVideoChunk(chunkIndex)
+        if not data then break end
+
+        local resolution = { tonumber(data[1]:match("(%d+)")), tonumber(data[1]:match("%d+ (%d+)")) }
+        local fps = tonumber(data[1]:match("%d+ %d+ (%d+)"))
+        table.remove(data, 1)
+
+        local frameIndex = 1
+        while frameIndex + resolution[2] - 1 <= #data do
+            frameIndex = nextFrame(data, frameIndex, resolution, fps)
+        end
+
+        chunkIndex = chunkIndex + 1
+    end
+end
+
+-- MAIN LOOP
+while true do
+    term.clear()
+    term.setCursorPos(1, 1)
+    waitForRedstone()
+    resetTapeDrive()
+    playVideo()
+end
