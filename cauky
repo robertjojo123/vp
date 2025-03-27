@@ -1,0 +1,95 @@
+local monitor = peripheral.find("monitor")
+local tape = peripheral.find("tape_drive")
+monitor.setTextScale(0.5)
+term.redirect(monitor)
+
+local function resetTapeDrive()
+    if tape then
+        tape.stop()
+        tape.seek(-tape.getSize())
+    end
+end
+
+local function fetchVideoChunk(index)
+    local url = "https://raw.githubusercontent.com/robertjojo123/vp/refs/heads/main/video_chunk_" .. index .. ".nfv"
+    local response = http.get(url)
+    if not response then return nil end
+
+    local data = {}
+    for line in response.readLine do
+        table.insert(data, line)
+    end
+    response.close()
+    return data
+end
+
+local function drawFrame(frameData)
+    for y = 1, #frameData do
+        local bg = frameData[y]
+        local txt = string.rep(" ", #bg)
+        local fg = string.rep("0", #bg)
+        monitor.setCursorPos(1, y)
+        monitor.blit(txt, fg, bg)
+    end
+end
+
+local function playVideo()
+    local chunkIndex = 0
+    local data = {}
+    local resolution = {1, 1}
+    local fps = 10
+    local frameIndex = 0
+    local frameNum = 0
+
+    while true do
+        -- Load new chunk if needed
+        if frameIndex == 0 or frameIndex + resolution[2] - 1 > #data then
+            local newData = fetchVideoChunk(chunkIndex)
+            if not newData then break end
+
+            resolution = { tonumber(newData[1]:match("(%d+)")), tonumber(newData[1]:match("%d+ (%d+)")) }
+            fps = tonumber(newData[1]:match("%d+ %d+ (%d+)"))
+            table.remove(newData, 1)
+
+            data = newData
+            frameIndex = 0
+            chunkIndex = chunkIndex + 1
+        end
+
+        -- Wait for redstone pulse to render next frame
+        os.pullEvent("redstone")
+
+        -- If we're still loading, skip rendering this frame
+        if frameIndex + resolution[2] - 1 <= #data then
+            local frame = {}
+            for i = 1, resolution[2] do
+                table.insert(frame, data[frameIndex + i])
+            end
+            drawFrame(frame)
+
+            frameIndex = frameIndex + resolution[2]
+            frameNum = frameNum + 1
+        end
+    end
+end
+
+-- MAIN LOOP
+while true do
+    term.clear()
+    term.setCursorPos(1, 1)
+    print("Waiting for redstone pulse to start playback...")
+
+    while true do
+        for _, side in ipairs(redstone.getSides()) do
+            if redstone.getInput(side) then
+                goto start_playback
+            end
+        end
+        os.pullEvent("redstone")
+    end
+
+    ::start_playback::
+    resetTapeDrive()
+    if tape then tape.play() end
+    playVideo()
+end
