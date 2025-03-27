@@ -1,0 +1,28 @@
+local outputSide = "right"  -- Adjust this to the side facing the video computer
+local pulseCount = 0
+
+print("Waiting for redstone pulse to start ticking...")
+while true do
+    for _, side in ipairs(redstone.getSides()) do
+        if redstone.getInput(side) then
+            break
+        end
+    end
+    os.pullEvent("redstone")
+    break
+end
+
+print("Starting custom-timed frame ticks...")
+
+while true do
+    redstone.setOutput(outputSide, true)
+    os.sleep(0.05)
+    redstone.setOutput(outputSide, false)
+
+    pulseCount = pulseCount + 1
+    if pulseCount % 4 == 0 then
+        os.sleep(0.05)  -- shorter delay every 4th pulse
+    else
+        os.sleep(0.1)
+    end
+end
