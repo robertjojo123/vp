@@ -1,0 +1,94 @@
+-- Slot Machine - Probability-Based Version
+
+-- Utility Functions
+local function getInputStrength(side)
+    return redstone.getAnalogInput(side)
+end
+
+local function setOutputStrength(side, strength)
+    redstone.setAnalogOutput(side, strength)
+end
+
+local function cycleReel(side, duration)
+    local start = os.clock()
+    while os.clock() - start < duration do
+        for strength = 3, 5 do
+            setOutputStrength(side, strength)
+            sleep(0.1)
+            setOutputStrength(side, 0)
+            sleep(0.1)
+        end
+    end
+end
+
+local function randomStrength()
+    return 2 + math.random(3) -- 3, 4, or 5
+end
+
+local function decideFront(leftStrength)
+    if math.random() <= 0.85 then
+        return leftStrength
+    else
+        repeat
+            local alt = randomStrength()
+            if alt ~= leftStrength then return alt end
+        until false
+    end
+end
+
+local function decideRight(left, front)
+    if left == front then
+        if left == 5 then
+            -- 5x win trigger
+            if math.random() <= 0.05 then return 5 end
+        else
+            -- 2x win trigger
+            if math.random() <= 0.35 then return left end
+        end
+    end
+
+    -- If no win, pick a non-matching strength
+    repeat
+        local candidate = randomStrength()
+        if candidate ~= left or candidate ~= front then return candidate end
+    until false
+end
+
+-- Main Loop
+while true do
+    while not redstone.getInput("top") do
+        sleep(0.1)
+    end
+
+    local speed = getInputStrength("back")
+    local playTime = (speed == 15) and 6 or 15
+
+    -- LEFT OUTPUT
+    cycleReel("left", playTime / 3)
+    local left = randomStrength()
+    setOutputStrength("left", left)
+
+    -- FRONT OUTPUT
+    cycleReel("front", (2 * playTime) / 3)
+    local front = decideFront(left)
+    setOutputStrength("front", front)
+
+    -- RIGHT OUTPUT
+    cycleReel("right", playTime)
+    local right = decideRight(left, front)
+    setOutputStrength("right", right)
+
+    -- Optional Output Log
+    print(string.format("L:%d F:%d R:%d", left, front, right))
+    if left == front and front == right then
+        if right == 5 then
+            print(">>> JACKPOT 5x WIN!")
+        else
+            print(">>> 2x WIN!")
+        end
+    else
+        print("No win.")
+    end
+
+    sleep(playTime)
+end
