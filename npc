@@ -1,0 +1,30 @@
+local outputSide = "right"  -- Adjust based on wiring
+local pulseCount = 0
+
+print("Waiting for redstone pulse to start ticking...")
+while true do
+    for _, side in ipairs(redstone.getSides()) do
+        if redstone.getInput(side) then
+            break
+        end
+    end
+    os.pullEvent("redstone")
+    break
+end
+
+print("Starting pulse rhythm...")
+
+while true do
+    redstone.setOutput(outputSide, true)
+    os.sleep(0.05)
+    redstone.setOutput(outputSide, false)
+
+    pulseCount = pulseCount + 1
+
+    -- Custom pulse timing logic
+    if (pulseCount % 3 == 0) or (pulseCount % 20 == 0) then
+        os.sleep(0.05)
+    else
+        os.sleep(0.1)
+    end
+end
