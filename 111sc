@@ -1,0 +1,24 @@
+local outputSide = "right"  -- adjust based on where the video computer is
+local fps = 10
+local frameDelay = 1 / fps
+
+-- Wait for a redstone pulse to begin playback
+print("Waiting for redstone pulse to start ticking...")
+while true do
+    for _, side in ipairs(redstone.getSides()) do
+        if redstone.getInput(side) then
+            goto start
+        end
+    end
+    os.pullEvent("redstone")
+end
+
+::start::
+print("Starting frame ticks...")
+
+while true do
+    redstone.setOutput(outputSide, true)
+    os.sleep(0.05)  -- pulse width (keep short)
+    redstone.setOutput(outputSide, false)
+    os.sleep(frameDelay - 0.05)
+end
