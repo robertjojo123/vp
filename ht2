@@ -1,0 +1,96 @@
+-- http-video-player.lua
+-- This script connects to the HTTP server and streams video frames to the monitor with synced FPS
+
+local url = 'localhost:8080'  -- The Sanjuuni HTTP server URL
+local infoUrl = url .. "/info"       -- Metadata containing video information
+local videoUrl = url .. "/video/"    -- URL for fetching video frames
+
+-- Function to download data from the server (frame data)
+local function downloadData(path)
+    print("Fetching data from: http://" .. url .. path)  -- Debugging: Print the request URL
+    local response, err = http.get('http://' .. url .. path)  -- Fetch the data from the HTTP server
+    if not response then
+        error("Failed to get data from server: " .. err .. " at " .. path)
+    end
+    local data = response.readAll()
+    response.close()
+    return data
+end
+
+-- Get video metadata
+local videoInfo
+local success, err = pcall(function()
+    videoInfo = textutils.unserializeJSON(downloadData(infoUrl))  -- Fetch video info from '/info' endpoint
+end)
+if not success then
+    print("Error fetching video metadata: " .. err)
+    return
+end
+
+local totalFrames = videoInfo.length  -- Total number of frames in the video
+local fps = videoInfo.fps            -- Frames per second for the video
+
+-- Automatically find the monitor peripheral
+local monitor = peripheral.find("monitor")
+if not monitor then
+    error("No monitor found!")
+end
+
+-- Set the monitor to be the active display
+term.redirect(monitor)  -- Redirect all output to the monitor
+
+-- Prepare to play the video
+local function displayFrame(frameData)
+    local width, height = 164, 81  -- Monitor resolution at textScale = 0.5
+    local blitColors = {[0] = "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"}
+
+    -- Clear the screen
+    term.clear()
+
+    -- Parse the frame data and render it
+    local offset = 1
+    for y = 0, height - 1 do
+        local text, fg, bg = "", "", ""
+        for x = 1, width do
+            local char = string.char(frameData:byte(offset))  -- Get character byte
+            local fgColor = frameData:byte(offset + 1)       -- Get foreground color byte
+            local bgColor = frameData:byte(offset + 2)       -- Get background color byte
+            
+            text = text .. char
+            fg = fg .. blitColors[fgColor]
+            bg = bg .. blitColors[bgColor]
+            
+            offset = offset + 3  -- Move to the next byte for the next pixel (char, fg, bg)
+        end
+        term.setCursorPos(1, y + 1)
+        term.blit(text, fg, bg)
+    end
+end
+
+-- Main loop to continuously receive frames and display them with proper FPS synchronization
+local startTime = os.epoch('utc')  -- Record the start time for synchronization
+for frame = 0, totalFrames - 1 do
+    -- Download the video frame from the HTTP server
+    local frameData
+    local success, err = pcall(function()
+        frameData = downloadData(videoUrl .. frame)
+    end)
+
+    if not success then
+        print("Error fetching frame " .. frame .. ": " .. err)
+        break
+    end
+
+    -- Display the frame on the monitor
+    displayFrame(frameData)
+
+    -- Calculate the elapsed time for the current frame
+    local elapsedTime = os.epoch('utc') - startTime
+    local expectedTimeForFrame = (frame + 1) / fps * 1000  -- Time in milliseconds when this frame should end
+
+    -- Wait for the remaining time to maintain frame rate (compensate for delays)
+    local timeToWait = expectedTimeForFrame - elapsedTime
+    if timeToWait > 0 then
+        sleep(timeToWait / 1000)  -- Convert milliseconds to seconds
+    end
+end
