@@ -1,0 +1,144 @@
+-- Initialize monitor and file handling
+local monitor = peripheral.find("monitor")
+
+-- Define the base URL for video chunks on GitHub
+local base_url = "https://raw.githubusercontent.com/robertjojo123/vp/refs/heads/main/video_chunk_"
+local chunk_index = 0  -- Start with chunk 0
+local chunk_file = "video_chunk_" .. chunk_index .. ".nfv"
+
+-- Function to download video chunk from GitHub using wget
+function downloadChunk(url, filename)
+    local command = "wget " .. url .. " -O " .. filename
+    shell.run(command)
+end
+
+-- Function to fetch the next chunk
+function getNextChunk()
+    -- Construct the URL for the current chunk
+    local url = base_url .. chunk_index .. ".nfv"
+
+    -- Download the chunk from GitHub
+    print("Downloading chunk " .. chunk_index)
+    downloadChunk(url, chunk_file)
+
+    -- Check if the chunk was downloaded successfully
+    if not fs.exists(chunk_file) then
+        print("Error: Chunk download failed or does not exist.")
+        return false
+    end
+
+    print("Chunk " .. chunk_index .. " downloaded successfully.")
+    return true
+end
+
+-- Load the video data
+local videoData = {}
+local function loadVideoData()
+    for line in io.lines(chunk_file) do
+        table.insert(videoData, line)
+    end
+end
+
+-- Extract resolution and FPS from the first line of the video data
+local resolution = { videoData[1]:match("(%d+) (%d+)") }
+local fps = tonumber(videoData[1]:match("%d+ %d+ (%d+)"))
+table.remove(videoData, 1)
+
+-- Index to keep track of the frames
+local frameIndex = 2
+
+-- Function to fetch the next frame from video data
+function nextFrame()
+    local start = os.epoch("utc")
+    local frame = {}
+    for i = 1, resolution[2] do
+        if frameIndex + i > #videoData then
+            return false
+        end
+        table.insert(frame, videoData[frameIndex + i])
+    end
+    frame = parseNfpFrame(frame)
+    frameIndex = frameIndex + resolution[2]
+    if frameIndex > #videoData then
+        return false
+    end
+
+    -- Use monitor.blit instead of paintutils to render the frame
+    renderFrame(frame)
+    
+    -- Wait for the appropriate time to maintain FPS
+    local comp = math.ceil((os.epoch("utc") - start) / 50) / 20
+    os.sleep((1 / fps) - comp)
+    return true
+end
+
+-- Function to render frame using monitor.blit
+function renderFrame(frame)
+    for y, row in ipairs(frame) do
+        term.setCursorPos(1, y)
+        term.blit(table.concat(row, ""))
+    end
+end
+
+-- Function to parse NFP frame into a format suitable for `blit`
+function parseNfpFrame(frame)
+    local parsedFrame = {}
+    for _, line in ipairs(frame) do
+        local row = {}
+        for i = 1, #line, 3 do
+            local char = " "  -- Blank space for text section
+            local fgColor = 0  -- fg color will be black (0)
+            local bgColor = tonumber(line:sub(i + 2, i + 2), 16)  -- Get background color from video data
+
+            -- Set foreground to black (0), and background to the pixel color from video chunk
+            local fg = string.rep(string.char(fgColor), resolution[1])
+            local bg = string.rep(string.char(bgColor), resolution[1])
+
+            table.insert(row, bg .. fg)  -- Background first, then foreground
+        end
+        table.insert(parsedFrame, row)
+    end
+    return parsedFrame
+end
+
+-- Set monitor text scale and redirect to monitor
+monitor.setTextScale(0.5)
+term.redirect(monitor)
+monitor.clear()
+
+-- Main loop to process and render frames
+function videoLoop()
+    while nextFrame() do end
+end
+
+-- Function to download and process video chunks iteratively
+function processChunks()
+    while true do
+        -- Download and process the current chunk
+        if not getNextChunk() then
+            print("No more chunks to process. Exiting...")
+            break
+        end
+
+        -- Load the data from the downloaded chunk
+        videoData = {}
+        loadVideoData()
+
+        -- Process frames of the current chunk
+        videoLoop()
+
+        -- Once all frames are processed, delete the chunk file
+        fs.delete(chunk_file)
+        print("Finished processing chunk " .. chunk_index)
+
+        -- Increment the chunk index and continue with the next chunk
+        chunk_index = chunk_index + 1
+    end
+end
+
+-- Start processing chunks
+processChunks()
+
+-- Reset terminal output when done
+term.clear()
+term.redirect(term.native())
